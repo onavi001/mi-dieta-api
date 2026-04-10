@@ -27,6 +27,35 @@ npm install
 npm run dev
 ```
 
+## Catalogo oficial de comidas
+
+El backend ya puede servir un catalogo oficial de comidas desde la tabla `public.meals`.
+Ese catalogo se usa para:
+
+- `GET /api/meals`
+- `GET /api/meals/:id`
+- `POST /api/plans/my/alternatives`
+
+Antes de usarlo, aplica primero el schema actualizado en Supabase usando `supabase-schema.sql`.
+
+Despues siembra el catalogo curado actual:
+
+```bash
+npm run seed:meals
+```
+
+Verifica el resultado:
+
+```bash
+npm run verify:meals
+```
+
+Si solo quieres probar el parser sin tocar la base:
+
+```bash
+npm run seed:meals:dry
+```
+
 Health check:
 
 ```bash

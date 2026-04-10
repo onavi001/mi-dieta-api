@@ -9,6 +9,7 @@ const userRoutes = require('./routes/users')
 const planRoutes = require('./routes/plans')
 const shareRoutes = require('./routes/shares')
 const nutritionRoutes = require('./routes/nutrition')
+const mealRoutes = require('./routes/meals')
 
 const app = express()
 const port = Number(process.env.PORT) || 3000
@@ -24,6 +25,7 @@ app.get('/health', (req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
+app.use('/api/meals', mealRoutes)
 app.use('/api/plans', planRoutes)
 app.use('/api/shares', shareRoutes)
 app.use('/api/nutrition', nutritionRoutes)

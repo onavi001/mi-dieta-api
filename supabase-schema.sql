@@ -9,8 +9,27 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Legacy catalog no longer used: plans are generated from portions into meal_payload per slot.
-DROP TABLE IF EXISTS meals;
+-- Official meal catalog used for alternatives and curated dish suggestions.
+CREATE TABLE IF NOT EXISTS meals (
+  id TEXT PRIMARY KEY,
+  tipo TEXT NOT NULL CHECK (tipo IN ('Desayuno','Snack Mañana','Comida','Snack Tarde','Cena')),
+  nombre TEXT NOT NULL,
+  receta TEXT NOT NULL DEFAULT '',
+  tip TEXT NOT NULL DEFAULT '',
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  forbidden_ingredients TEXT[] NOT NULL DEFAULT '{}',
+  ingredientes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  group_portions JSONB NOT NULL DEFAULT '{}'::jsonb,
+  real_dish_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE IF EXISTS meals
+  ADD COLUMN IF NOT EXISTS group_portions JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE IF EXISTS meals
+  ADD COLUMN IF NOT EXISTS real_dish_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- One row per user + week
 CREATE TABLE IF NOT EXISTS meal_plan_weeks (
@@ -214,6 +233,7 @@ CREATE TABLE IF NOT EXISTS nutrition_progress_logs (
 
 CREATE INDEX IF NOT EXISTS idx_meal_plan_weeks_user_week ON meal_plan_weeks(user_id, week);
 CREATE INDEX IF NOT EXISTS idx_meal_plan_slots_week_slot ON meal_plan_slots(week_id, slot_id);
+CREATE INDEX IF NOT EXISTS idx_meals_tipo_nombre ON meals(tipo, nombre);
 CREATE INDEX IF NOT EXISTS idx_plan_shares_shared_with ON plan_shares(shared_with_user_id);
 CREATE INDEX IF NOT EXISTS idx_plan_share_invites_target_status ON plan_share_invites(target_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_nutrition_plan_versions_user_start ON nutrition_plan_versions(user_id, start_date DESC);
@@ -258,6 +278,11 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS meal_plan_weeks_touch_updated_at ON meal_plan_weeks;
 CREATE TRIGGER meal_plan_weeks_touch_updated_at
   BEFORE UPDATE ON meal_plan_weeks
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+DROP TRIGGER IF EXISTS meals_touch_updated_at ON meals;
+CREATE TRIGGER meals_touch_updated_at
+  BEFORE UPDATE ON meals
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 DROP TRIGGER IF EXISTS meal_plan_slots_touch_updated_at ON meal_plan_slots;

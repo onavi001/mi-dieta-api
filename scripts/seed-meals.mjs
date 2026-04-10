@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
+import vm from 'node:vm'
 import dotenv from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
 
@@ -24,9 +25,34 @@ const dryRun = argv.includes('--dry-run')
 const sourceArg = argv.find((arg) => arg.startsWith('--source='))
 const sourcePath = sourceArg
   ? sourceArg.replace('--source=', '')
-  : '../mi-dieta/src/data/meal-database.json'
+  : '../mi-dieta/src/data/curatedMealCatalog.ts'
 
 const resolvedSource = path.resolve(process.cwd(), sourcePath)
+
+async function loadMealsFromSource(filePath) {
+  const raw = await fs.readFile(filePath, 'utf-8')
+
+  if (filePath.endsWith('.json')) {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed?.meals) ? parsed.meals : []
+  }
+
+  if (filePath.endsWith('.ts') || filePath.endsWith('.js')) {
+    const transformed = raw
+      .replace(/^import type .*$/m, '')
+      .replace(/export const CURATED_MEAL_CATALOG_EXPANDED\s*:\s*Comida\[\]\s*=\s*/, 'const CURATED_MEAL_CATALOG_EXPANDED = ')
+      .replace(/export function getCuratedExpandedMealsByType[\s\S]*$/, '')
+      .concat('\nmodule.exports = { CURATED_MEAL_CATALOG_EXPANDED };\n')
+
+    const sandbox = { module: { exports: {} }, exports: {} }
+    vm.runInNewContext(transformed, sandbox, { filename: filePath })
+    return Array.isArray(sandbox.module.exports.CURATED_MEAL_CATALOG_EXPANDED)
+      ? sandbox.module.exports.CURATED_MEAL_CATALOG_EXPANDED
+      : []
+  }
+
+  throw new Error(`Unsupported source file: ${filePath}`)
+}
 
 function toDbMeal(meal) {
   const ingredientes = Array.isArray(meal.ingredientes)
@@ -49,7 +75,8 @@ function toDbMeal(meal) {
     tags: Array.isArray(meal.tags) ? meal.tags : [],
     forbidden_ingredients: Array.isArray(meal.forbiddenIngredients) ? meal.forbiddenIngredients : [],
     ingredientes,
-    macros: meal.macros && typeof meal.macros === 'object' ? meal.macros : {},
+    group_portions: meal.groupPortions && typeof meal.groupPortions === 'object' ? meal.groupPortions : {},
+    real_dish_metadata: meal.realDishMetadata && typeof meal.realDishMetadata === 'object' ? meal.realDishMetadata : {},
   }
 }
 
@@ -63,9 +90,7 @@ function isValidMeal(meal) {
 }
 
 async function main() {
-  const raw = await fs.readFile(resolvedSource, 'utf-8')
-  const parsed = JSON.parse(raw)
-  const meals = Array.isArray(parsed?.meals) ? parsed.meals : []
+  const meals = await loadMealsFromSource(resolvedSource)
 
   if (meals.length === 0) {
     throw new Error('No meals found in source file')

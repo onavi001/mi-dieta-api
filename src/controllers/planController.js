@@ -262,6 +262,23 @@ function buildGeneratedMeal({ userId, week, day, tipo, slotId, groupGramsByMeal 
   }
 }
 
+function toCatalogMealPayload(row) {
+  if (!row) return null
+
+  return {
+    id: row.id,
+    tipo: row.tipo,
+    nombre: row.nombre,
+    receta: row.receta || '',
+    tip: row.tip || '',
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    forbidden_ingredients: Array.isArray(row.forbidden_ingredients) ? row.forbidden_ingredients : [],
+    ingredientes: Array.isArray(row.ingredientes) ? row.ingredientes : [],
+    groupPortions: row.group_portions && typeof row.group_portions === 'object' ? row.group_portions : {},
+    realDishMetadata: row.real_dish_metadata && typeof row.real_dish_metadata === 'object' ? row.real_dish_metadata : {},
+  }
+}
+
 function success(res, data, status = 200) {
   return res.status(status).json({ ok: true, data })
 }
@@ -686,6 +703,61 @@ async function updateMySlot(req, res) {
   }
 }
 
+async function getMySlotAlternatives(req, res) {
+  try {
+    const { slotId, currentMealId, week } = req.body || {}
+
+    if (!slotId || typeof slotId !== 'string') {
+      return failure(res, 'slotId is required', 400)
+    }
+
+    const selectedWeek = week || getIsoWeekString()
+    const weekRow = await getWeekRow(req.user.id, selectedWeek)
+    if (!weekRow) {
+      return failure(res, 'Plan not found for selected week', 404)
+    }
+
+    const { data: slotRow, error: slotError } = await supabaseAdmin
+      .from('meal_plan_slots')
+      .select('slot_id, tipo')
+      .eq('week_id', weekRow.id)
+      .eq('slot_id', slotId)
+      .maybeSingle()
+
+    if (slotError) {
+      return failure(res, slotError.message, 400)
+    }
+
+    if (!slotRow) {
+      return failure(res, 'Slot not found in current plan', 404)
+    }
+
+    let query = supabaseAdmin
+      .from('meals')
+      .select('id, tipo, nombre, receta, tip, tags, forbidden_ingredients, ingredientes, group_portions, real_dish_metadata')
+      .eq('tipo', slotRow.tipo)
+      .order('nombre', { ascending: true })
+
+    if (currentMealId && typeof currentMealId === 'string') {
+      query = query.neq('id', currentMealId)
+    }
+
+    const { data: meals, error: mealsError } = await query
+
+    if (mealsError) {
+      return failure(res, mealsError.message, 400)
+    }
+
+    return success(res, {
+      slotId,
+      currentMealId: currentMealId || null,
+      suggestedMeals: (meals || []).map(toCatalogMealPayload),
+    })
+  } catch (error) {
+    return failure(res, 'Failed to fetch slot alternatives', 500)
+  }
+}
+
 async function replaceMySlotIngredient(req, res) {
   try {
     const { slot, ingredientIndex, nextIngredientId, week } = req.body || {}
@@ -933,6 +1005,7 @@ async function getCombinedPlan(req, res) {
 module.exports = {
   getMyPlan,
   generateMyPlan,
+  getMySlotAlternatives,
   updateMySlot,
   replaceMySlotIngredient,
   completeMySlot,

@@ -373,15 +373,25 @@ function normalizeWeekPlan(weekRow, slotRows) {
     },
     updatedAt: weekRow.updated_at,
     slots: (slotRows || []).map((slot) => ({
-      id: slot.id,
-      slot: slot.slot_id,
-      day: slot.day,
-      tipo: slot.tipo,
-      hour: slot.hour,
-      mealId: slot.meal_payload?.id || null,
-      meal: slot.meal_payload || null,
-      completed: Boolean(slot.completed),
-      updatedAt: slot.updated_at,
+      // Keep backward compatibility: if a slot has an override, expose it as the effective meal.
+      ...(() => {
+        const effectiveMeal =
+          slot.meal_override_payload && typeof slot.meal_override_payload === 'object' && !Array.isArray(slot.meal_override_payload)
+            ? slot.meal_override_payload
+            : slot.meal_payload || null
+
+        return {
+          id: slot.id,
+          slot: slot.slot_id,
+          day: slot.day,
+          tipo: slot.tipo,
+          hour: slot.hour,
+          mealId: effectiveMeal?.id || null,
+          meal: effectiveMeal,
+          completed: Boolean(slot.completed),
+          updatedAt: slot.updated_at,
+        }
+      })(),
     })),
   }
 }
@@ -693,11 +703,75 @@ async function updateMyWeekState(req, res) {
 
 async function updateMySlot(req, res) {
   try {
-    return failure(
-      res,
-      'Intercambio manual de comidas deshabilitado. Regenera la semana desde el plan de porciones.',
-      400
-    )
+    const { slot, meal, week } = req.body || {}
+
+    if (!slot || typeof slot !== 'string') {
+      return failure(res, 'slot is required', 400)
+    }
+
+    if (!meal || typeof meal !== 'object' || Array.isArray(meal)) {
+      return failure(res, 'meal is required', 400)
+    }
+
+    const selectedWeek = week || getIsoWeekString()
+    const weekRow = await getWeekRow(req.user.id, selectedWeek)
+    if (!weekRow) {
+      return failure(res, 'Plan not found for selected week', 404)
+    }
+
+    const { data: slotRow, error: slotError } = await supabaseAdmin
+      .from('meal_plan_slots')
+      .select('*')
+      .eq('week_id', weekRow.id)
+      .eq('slot_id', slot)
+      .maybeSingle()
+
+    if (slotError) {
+      return failure(res, slotError.message, 400)
+    }
+
+    if (!slotRow) {
+      return failure(res, 'Slot not found in current plan', 404)
+    }
+
+    const normalizedMeal = {
+      ...meal,
+      id: String(meal.id || ''),
+      tipo: slotRow.tipo,
+      nombre: String(meal.nombre || ''),
+      receta: typeof meal.receta === 'string' ? meal.receta : '',
+      tip: typeof meal.tip === 'string' ? meal.tip : '',
+      tags: Array.isArray(meal.tags) ? meal.tags.filter((item) => typeof item === 'string') : [],
+      forbidden_ingredients: Array.isArray(meal.forbidden_ingredients)
+        ? meal.forbidden_ingredients.filter((item) => typeof item === 'string')
+        : Array.isArray(meal.forbiddenIngredients)
+          ? meal.forbiddenIngredients.filter((item) => typeof item === 'string')
+          : [],
+      ingredientes: Array.isArray(meal.ingredientes) ? meal.ingredientes : [],
+      groupPortions:
+        meal.groupPortions && typeof meal.groupPortions === 'object' && !Array.isArray(meal.groupPortions)
+          ? meal.groupPortions
+          : {},
+      realDishMetadata:
+        meal.realDishMetadata && typeof meal.realDishMetadata === 'object' && !Array.isArray(meal.realDishMetadata)
+          ? meal.realDishMetadata
+          : {},
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('meal_plan_slots')
+      .update({
+        meal_payload: normalizedMeal,
+        meal_override_payload: null,
+      })
+      .eq('id', slotRow.id)
+
+    if (updateError) {
+      return failure(res, updateError.message, 400)
+    }
+
+    const refreshedSlots = await getSlotsByWeekId(weekRow.id)
+    return success(res, { plan: normalizeWeekPlan(weekRow, refreshedSlots) })
   } catch (error) {
     return failure(res, 'Failed to update slot', 500)
   }
@@ -959,6 +1033,11 @@ async function getCombinedPlan(req, res) {
 
     const assignSlot = (slot, owner) => {
       const key = slot.slot_id
+      const effectiveMeal =
+        slot.meal_override_payload && typeof slot.meal_override_payload === 'object' && !Array.isArray(slot.meal_override_payload)
+          ? slot.meal_override_payload
+          : slot.meal_payload || null
+
       const existing = mergedMap.get(key) || {
         slot: key,
         day: slot.day,
@@ -968,8 +1047,8 @@ async function getCombinedPlan(req, res) {
       }
 
       existing.users[owner] = {
-        mealId: slot.meal_payload?.id || null,
-        meal: slot.meal_payload || null,
+        mealId: effectiveMeal?.id || null,
+        meal: effectiveMeal,
         completed: Boolean(slot.completed),
       }
 

@@ -1,0 +1,31 @@
+{
+  "name": "mi-dieta-api",
+  "version": "1.0.0",
+  "description": "REST API for Mi Dieta using Express + Supabase",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "seed:meals": "node scripts/seed-meals.mjs",
+    "seed:meals:dry": "node scripts/seed-meals.mjs --dry-run",
+    "verify:meals": "node scripts/verify-meals.mjs"
+  },
+  "keywords": [
+    "express",
+    "supabase",
+    "rest-api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.102.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

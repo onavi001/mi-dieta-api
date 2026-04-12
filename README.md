@@ -1,23 +1,22 @@
 # mi-dieta-api
 
-Backend REST para Mi Dieta usando Express y Supabase.
+Backend REST para Mi Dieta (Express + Supabase).
 
 ## Stack
 
 - Node.js
-- Express
+- Express 5
 - Supabase
+- CORS + Helmet
 
 ## Variables de entorno
 
-Basadas en `.env.example`:
-
 ```env
 PORT=3000
+CLIENT_URL=http://localhost:5173
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-CLIENT_URL=http://localhost:5173
 ```
 
 ## Desarrollo local
@@ -27,73 +26,79 @@ npm install
 npm run dev
 ```
 
-## Catalogo oficial de comidas
+Servidor por defecto: `http://localhost:3000`.
 
-El backend ya puede servir un catalogo oficial de comidas desde la tabla `public.meals`.
-Ese catalogo se usa para:
+Health check:
 
+```http
+GET /health
+```
+
+## Scripts
+
+```bash
+npm run dev
+npm start
+npm run seed:meals
+npm run seed:meals:dry
+npm run verify:meals
+```
+
+## Rutas principales
+
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+- `GET /api/users/me`
 - `GET /api/meals`
 - `GET /api/meals/:id`
+- `GET /api/plans/my`
+- `POST /api/plans/my/generate`
 - `POST /api/plans/my/alternatives`
+- `PATCH /api/plans/my/slot/:slotId`
+- `POST /api/shares/*`
+- `GET /api/nutrition/*`
+- `POST /api/nutrition/*`
 
-Antes de usarlo, aplica primero el schema actualizado en Supabase usando `supabase-schema.sql`.
+Nota: la logica exacta puede evolucionar por controlador, pero esos prefijos estan montados en `src/app.js`.
 
-Despues siembra el catalogo curado actual:
+## Catalogo de comidas (Supabase)
+
+El catalogo oficial se guarda en `public.meals` y se usa para generar y sugerir alternativas.
+
+1. Aplica esquema de base:
+
+```bash
+# ejecutar en Supabase SQL Editor
+supabase-schema.sql
+```
+
+2. Siembra catalogo curado:
 
 ```bash
 npm run seed:meals
 ```
 
-Verifica el resultado:
+3. Verifica:
 
 ```bash
 npm run verify:meals
 ```
 
-Si solo quieres probar el parser sin tocar la base:
+4. Dry-run (sin escribir DB):
 
 ```bash
 npm run seed:meals:dry
 ```
 
-Health check:
+## Integracion con frontend
 
-```bash
-GET /health
-```
+- El frontend debe apuntar a este backend via `VITE_DIETA_API_BASE`.
+- `CLIENT_URL` debe coincidir con el origen del frontend para CORS.
 
-## Deploy recomendado
+## Deploy
 
-La opcion mas simple para este backend es `Render` o `Railway`.
+Funciona bien en Render o Railway:
 
-### Render
-
-- Tipo: `Web Service`
-- Runtime: `Node`
-- Build command: `npm install`
-- Start command: `npm start`
-- Health check path: `/health`
-
-### Railway
-
-- Detecta automaticamente `package.json`
-- Start command: `npm start`
-- Variables: las mismas del `.env.example`
-
-## GitHub
-
-Si el repo aun no existe:
-
-```bash
-git init
-git add .
-git commit -m "Initial backend commit"
-```
-
-Despues crea un repo vacio en GitHub y conecta el remoto:
-
-```bash
-git remote add origin <URL_DEL_REPO>
-git branch -M main
-git push -u origin main
-```
+- Build: `npm install`
+- Start: `npm start`
+- Health path: `/health`

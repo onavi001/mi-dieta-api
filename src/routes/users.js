@@ -6,11 +6,13 @@ const {
   getUserById,
   updateUser,
   deleteUser,
+  resetMyData,
 } = require('../controllers/userController')
 
 const router = express.Router()
 
 router.get('/me/profile', authMiddleware, getMyProfile)
+router.post('/me/reset-data', authMiddleware, resetMyData)
 router.get('/', authMiddleware, listUsers)
 router.get('/:id', authMiddleware, getUserById)
 router.put('/:id', authMiddleware, updateUser)

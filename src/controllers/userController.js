@@ -1,4 +1,5 @@
 const { createUserClient, supabaseAdmin } = require('../config/supabase')
+const SELF_SERVICE_RESET_USER_ID = '4a9daa23-4aee-4bcc-bdf3-4c50931607ea'
 
 function success(res, data, status = 200) {
   return res.status(status).json({ ok: true, data })
@@ -197,10 +198,66 @@ async function deleteUser(req, res) {
   }
 }
 
+async function resetMyData(req, res) {
+  try {
+    if (req.user.id !== SELF_SERVICE_RESET_USER_ID) {
+      return failure(res, 'Not allowed', 403)
+    }
+
+    const userId = req.user.id
+
+    const [
+      { error: sharesOwnerError },
+      { error: sharesTargetError },
+      { error: invitesOwnerError },
+      { error: invitesTargetError },
+      { error: progressError },
+      { error: versionsError },
+      { error: nutritionProfileError },
+      { error: weeksError },
+      { error: profileResetError },
+    ] = await Promise.all([
+      supabaseAdmin.from('plan_shares').delete().eq('owner_user_id', userId),
+      supabaseAdmin.from('plan_shares').delete().eq('shared_with_user_id', userId),
+      supabaseAdmin.from('plan_share_invites').delete().eq('owner_user_id', userId),
+      supabaseAdmin.from('plan_share_invites').delete().eq('target_user_id', userId),
+      supabaseAdmin.from('nutrition_progress_logs').delete().eq('user_id', userId),
+      supabaseAdmin.from('nutrition_plan_versions').delete().eq('user_id', userId),
+      supabaseAdmin.from('nutrition_profiles').delete().eq('user_id', userId),
+      supabaseAdmin.from('meal_plan_weeks').delete().eq('user_id', userId),
+      supabaseAdmin
+        .from('profiles')
+        .update({ nutritional_profile: {} })
+        .eq('id', userId),
+    ])
+
+    const firstError = [
+      sharesOwnerError,
+      sharesTargetError,
+      invitesOwnerError,
+      invitesTargetError,
+      progressError,
+      versionsError,
+      nutritionProfileError,
+      weeksError,
+      profileResetError,
+    ].find(Boolean)
+
+    if (firstError) {
+      return failure(res, firstError.message, 400)
+    }
+
+    return success(res, { reset: true })
+  } catch (error) {
+    return failure(res, 'Failed to reset my data', 500)
+  }
+}
+
 module.exports = {
   getMyProfile,
   listUsers,
   getUserById,
   updateUser,
   deleteUser,
+  resetMyData,
 }

@@ -1,4 +1,5 @@
 const { createUserClient, supabaseAdmin } = require('../config/supabase')
+const { userIdFromReq } = require('../utils/safeLog')
 const SELF_SERVICE_RESET_USER_ID = '4a9daa23-4aee-4bcc-bdf3-4c50931607ea'
 
 function success(res, data, status = 200) {
@@ -25,6 +26,7 @@ async function ensureAdmin(userId) {
 
 async function getMyProfile(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'user.profile_me' }, 'user')
     const supabase = createUserClient(req.accessToken)
 
     const { data, error } = await supabase
@@ -51,6 +53,7 @@ async function getMyProfile(req, res) {
 
     return success(res, { profile: data })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.profile_me_error' }, 'user')
     return failure(res, 'Failed to fetch my profile', 500)
   }
 }
@@ -60,6 +63,8 @@ async function listUsers(req, res) {
     if (!(await ensureAdmin(req.user.id))) {
       return failure(res, 'Admin access required', 403)
     }
+
+    req.log?.info({ ...userIdFromReq(req), event: 'user.admin_list' }, 'user')
 
     const { data: authUsersData, error: authUsersError } = await supabaseAdmin.auth.admin.listUsers()
     if (authUsersError) {
@@ -95,6 +100,7 @@ async function listUsers(req, res) {
 
     return success(res, { users })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.admin_list_error' }, 'user')
     return failure(res, 'Failed to list users', 500)
   }
 }
@@ -106,6 +112,8 @@ async function getUserById(req, res) {
     }
 
     const { id } = req.params
+
+    req.log?.info({ ...userIdFromReq(req), event: 'user.admin_get', targetUserId: id }, 'user')
 
     const { data, error } = await supabaseAdmin
       .from('profiles')
@@ -119,6 +127,7 @@ async function getUserById(req, res) {
 
     return success(res, { profile: data })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.admin_get_error' }, 'user')
     return failure(res, 'Failed to fetch user profile', 500)
   }
 }
@@ -131,6 +140,12 @@ async function updateUser(req, res) {
 
     const { id } = req.params
     const { name, role, nutritionalProfile } = req.body || {}
+
+    const fieldsTouched = []
+    if (name !== undefined) fieldsTouched.push('name')
+    if (role !== undefined) fieldsTouched.push('role')
+    if (nutritionalProfile !== undefined) fieldsTouched.push('nutritionalProfile')
+    req.log?.info({ ...userIdFromReq(req), event: 'user.admin_update', targetUserId: id, fields: fieldsTouched }, 'user')
 
     const updatePayload = {}
 
@@ -165,6 +180,7 @@ async function updateUser(req, res) {
 
     return success(res, { profile: data })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.admin_update_error' }, 'user')
     return failure(res, 'Failed to update user', 500)
   }
 }
@@ -176,6 +192,8 @@ async function deleteUser(req, res) {
     }
 
     const { id } = req.params
+
+    req.log?.warn({ ...userIdFromReq(req), event: 'user.admin_delete', targetUserId: id }, 'user')
 
     const { error: profileDeleteError } = await supabaseAdmin
       .from('profiles')
@@ -194,6 +212,7 @@ async function deleteUser(req, res) {
 
     return success(res, { deleted: true })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.admin_delete_error' }, 'user')
     return failure(res, 'Failed to delete user', 500)
   }
 }
@@ -205,6 +224,8 @@ async function resetMyData(req, res) {
     }
 
     const userId = req.user.id
+
+    req.log?.warn({ ...userIdFromReq(req), event: 'user.reset_self_service' }, 'user')
 
     const [
       { error: sharesOwnerError },
@@ -249,6 +270,7 @@ async function resetMyData(req, res) {
 
     return success(res, { reset: true })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.reset_self_service_error' }, 'user')
     return failure(res, 'Failed to reset my data', 500)
   }
 }

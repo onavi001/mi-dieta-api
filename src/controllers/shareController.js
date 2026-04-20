@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase')
+const { userIdFromReq } = require('../utils/safeLog')
 
 function success(res, data, status = 200) {
   return res.status(status).json({ ok: true, data })
@@ -22,6 +23,7 @@ function normalizeInvite(invite) {
 
 async function listMyShares(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'share.list_mine' }, 'share')
     const userId = req.user.id
 
     const [ownedResult, receivedResult] = await Promise.all([
@@ -48,12 +50,14 @@ async function listMyShares(req, res) {
       received: receivedResult.data || [],
     })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.list_mine_error' }, 'share')
     return failure(res, 'Failed to list shares', 500)
   }
 }
 
 async function listMyShareUsers(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'share.list_users' }, 'share')
     const userId = req.user.id
 
     const { data: rows, error } = await supabaseAdmin
@@ -110,6 +114,7 @@ async function listMyShareUsers(req, res) {
 
     return success(res, { users })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.list_users_error' }, 'share')
     return failure(res, 'Failed to list share users', 500)
   }
 }
@@ -122,6 +127,8 @@ async function searchShareCandidates(req, res) {
     if (query.length < 2) {
       return success(res, { users: [] })
     }
+
+    req.log?.debug({ ...userIdFromReq(req), event: 'share.search', queryLen: query.length }, 'share')
 
     const { data: authUsersData, error: authUsersError } = await supabaseAdmin.auth.admin.listUsers()
     if (authUsersError) {
@@ -178,6 +185,7 @@ async function searchShareCandidates(req, res) {
 
     return success(res, { users })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.search_error' }, 'share')
     return failure(res, 'Failed to search share candidates', 500)
   }
 }
@@ -194,6 +202,8 @@ async function createShare(req, res) {
     if (sharedWithUserId === ownerUserId) {
       return failure(res, 'Cannot share with yourself')
     }
+
+    req.log?.info({ ...userIdFromReq(req), event: 'share.create', sharedWithUserId }, 'share')
 
     const payload = {
       owner_user_id: ownerUserId,
@@ -213,6 +223,7 @@ async function createShare(req, res) {
 
     return success(res, { share: data }, 201)
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.create_error' }, 'share')
     return failure(res, 'Failed to create share', 500)
   }
 }
@@ -226,6 +237,8 @@ async function updateShare(req, res) {
     if (typeof canEdit !== 'boolean') {
       return failure(res, 'canEdit(boolean) is required')
     }
+
+    req.log?.info({ ...userIdFromReq(req), event: 'share.update', sharedWithUserId }, 'share')
 
     const { data, error } = await supabaseAdmin
       .from('plan_shares')
@@ -245,6 +258,7 @@ async function updateShare(req, res) {
 
     return success(res, { share: data })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.update_error' }, 'share')
     return failure(res, 'Failed to update share', 500)
   }
 }
@@ -253,6 +267,8 @@ async function deleteShare(req, res) {
   try {
     const ownerUserId = req.user.id
     const { sharedWithUserId } = req.params
+
+    req.log?.info({ ...userIdFromReq(req), event: 'share.delete', sharedWithUserId }, 'share')
 
     const { data, error } = await supabaseAdmin
       .from('plan_shares')
@@ -271,6 +287,7 @@ async function deleteShare(req, res) {
 
     return success(res, { deleted: true })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.delete_error' }, 'share')
     return failure(res, 'Failed to delete share', 500)
   }
 }
@@ -287,6 +304,8 @@ async function sendShareInvite(req, res) {
     if (targetUserId === ownerUserId) {
       return failure(res, 'Cannot invite yourself')
     }
+
+    req.log?.info({ ...userIdFromReq(req), event: 'share.invite_send', targetUserId }, 'share')
 
     const { data, error } = await supabaseAdmin
       .from('plan_share_invites')
@@ -308,12 +327,14 @@ async function sendShareInvite(req, res) {
 
     return success(res, { invite: normalizeInvite(data) }, 201)
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.invite_send_error' }, 'share')
     return failure(res, 'Failed to send invite', 500)
   }
 }
 
 async function listIncomingInvites(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'share.invites_incoming' }, 'share')
     const { data, error } = await supabaseAdmin
       .from('plan_share_invites')
       .select('*')
@@ -327,12 +348,14 @@ async function listIncomingInvites(req, res) {
 
     return success(res, { invites: (data || []).map(normalizeInvite) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.invites_incoming_error' }, 'share')
     return failure(res, 'Failed to list incoming invites', 500)
   }
 }
 
 async function listOutgoingInvites(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'share.invites_outgoing' }, 'share')
     const { data, error } = await supabaseAdmin
       .from('plan_share_invites')
       .select('*')
@@ -346,6 +369,7 @@ async function listOutgoingInvites(req, res) {
 
     return success(res, { invites: (data || []).map(normalizeInvite) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.invites_outgoing_error' }, 'share')
     return failure(res, 'Failed to list outgoing invites', 500)
   }
 }
@@ -353,6 +377,8 @@ async function listOutgoingInvites(req, res) {
 async function acceptInvite(req, res) {
   try {
     const { inviteId } = req.params
+
+    req.log?.info({ ...userIdFromReq(req), event: 'share.invite_accept', inviteId }, 'share')
 
     const { data: invite, error: inviteError } = await supabaseAdmin
       .from('plan_share_invites')
@@ -398,6 +424,7 @@ async function acceptInvite(req, res) {
 
     return success(res, { invite: normalizeInvite(updatedInvite), accepted: true })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.invite_accept_error' }, 'share')
     return failure(res, 'Failed to accept invite', 500)
   }
 }
@@ -405,6 +432,8 @@ async function acceptInvite(req, res) {
 async function rejectInvite(req, res) {
   try {
     const { inviteId } = req.params
+
+    req.log?.info({ ...userIdFromReq(req), event: 'share.invite_reject', inviteId }, 'share')
 
     const { data, error } = await supabaseAdmin
       .from('plan_share_invites')
@@ -425,6 +454,7 @@ async function rejectInvite(req, res) {
 
     return success(res, { invite: normalizeInvite(data), rejected: true })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'share.invite_reject_error' }, 'share')
     return failure(res, 'Failed to reject invite', 500)
   }
 }

@@ -1,5 +1,6 @@
 const { createUserClient } = require('../config/supabase')
 const { calculateNutritionPlan } = require('../utils/nutritionCalculator')
+const { userIdFromReq } = require('../utils/safeLog')
 
 function success(res, data, status = 200) {
   return res.status(status).json({ ok: true, data })
@@ -109,6 +110,7 @@ function normalizeProgressPayload(body = {}) {
 
 async function getNutritionSummary(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'nutrition.summary' }, 'nutrition')
     const supabase = createUserClient(req.accessToken)
     const userId = req.user.id
 
@@ -144,15 +146,17 @@ async function getNutritionSummary(req, res) {
       recentProgress: checkinsResult.data || [],
     })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'nutrition.summary_error' }, 'nutrition')
     return failure(res, 'Failed to fetch nutrition summary', 500)
   }
 }
 
 async function upsertNutritionProfile(req, res) {
   try {
+    const payload = normalizeProfilePayload(req.body || {})
+    req.log?.info({ ...userIdFromReq(req), event: 'nutrition.profile_upsert', fieldCount: Object.keys(payload).length }, 'nutrition')
     const supabase = createUserClient(req.accessToken)
     const userId = req.user.id
-    const payload = normalizeProfilePayload(req.body || {})
 
     if (Object.keys(payload).length === 0) {
       return failure(res, 'No profile fields provided to update')
@@ -170,12 +174,14 @@ async function upsertNutritionProfile(req, res) {
 
     return success(res, { nutritionProfile: data })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'nutrition.profile_upsert_error' }, 'nutrition')
     return failure(res, 'Failed to upsert nutrition profile', 500)
   }
 }
 
 async function listPlanVersions(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'nutrition.list_versions' }, 'nutrition')
     const supabase = createUserClient(req.accessToken)
 
     const { data, error } = await supabase
@@ -190,12 +196,14 @@ async function listPlanVersions(req, res) {
 
     return success(res, { planVersions: data || [] })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'nutrition.list_versions_error' }, 'nutrition')
     return failure(res, 'Failed to list plan versions', 500)
   }
 }
 
 async function createPlanVersion(req, res) {
   try {
+    req.log?.info({ ...userIdFromReq(req), event: 'nutrition.plan_version_create' }, 'nutrition')
     const supabase = createUserClient(req.accessToken)
     const userId = req.user.id
 
@@ -244,12 +252,14 @@ async function createPlanVersion(req, res) {
 
     return success(res, { planVersion: data }, 201)
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'nutrition.plan_version_create_error' }, 'nutrition')
     return failure(res, 'Failed to create nutrition plan version', 500)
   }
 }
 
 async function upsertProgressLog(req, res) {
   try {
+    req.log?.info({ ...userIdFromReq(req), event: 'nutrition.progress_upsert' }, 'nutrition')
     const supabase = createUserClient(req.accessToken)
     const userId = req.user.id
 
@@ -268,12 +278,14 @@ async function upsertProgressLog(req, res) {
 
     return success(res, { progressLog: data })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'nutrition.progress_upsert_error' }, 'nutrition')
     return failure(res, 'Failed to upsert nutrition progress log', 500)
   }
 }
 
 async function listProgressLogs(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'nutrition.progress_list' }, 'nutrition')
     const supabase = createUserClient(req.accessToken)
     const userId = req.user.id
 
@@ -301,12 +313,14 @@ async function listProgressLogs(req, res) {
 
     return success(res, { progressLogs: data || [] })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'nutrition.progress_list_error' }, 'nutrition')
     return failure(res, 'Failed to list nutrition progress logs', 500)
   }
 }
 
 async function calculatePlanPreview(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'nutrition.preview' }, 'nutrition')
     const profile = {
       weight: req.body?.weight,
       height: req.body?.height,
@@ -320,6 +334,7 @@ async function calculatePlanPreview(req, res) {
     const plan = calculateNutritionPlan(profile)
     return success(res, { plan })
   } catch (error) {
+    req.log?.warn({ err: error, ...userIdFromReq(req), event: 'nutrition.preview_error' }, 'nutrition')
     return failure(res, error.message || 'Failed to calculate nutrition plan', 400)
   }
 }

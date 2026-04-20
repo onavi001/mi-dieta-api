@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase')
+const { userIdFromReq } = require('../utils/safeLog')
 
 function success(res, data, status = 200) {
   return res.status(status).json({ ok: true, data })
@@ -28,6 +29,7 @@ function toMealPayload(row) {
 async function listMeals(req, res) {
   try {
     const tipo = typeof req.query.tipo === 'string' ? req.query.tipo.trim() : ''
+    req.log?.debug({ ...userIdFromReq(req), event: 'meal.list', hasTipoFilter: Boolean(tipo) }, 'meal')
 
     let query = supabaseAdmin
       .from('meals')
@@ -46,12 +48,14 @@ async function listMeals(req, res) {
 
     return success(res, { meals: (data || []).map(toMealPayload) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'meal.list_error' }, 'meal')
     return failure(res, 'Failed to list meals', 500)
   }
 }
 
 async function getMealById(req, res) {
   try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'meal.get', mealId: req.params.id }, 'meal')
     const { data, error } = await supabaseAdmin
       .from('meals')
       .select('id, tipo, nombre, receta, tip, tags, forbidden_ingredients, ingredientes, group_portions, real_dish_metadata')
@@ -68,11 +72,13 @@ async function getMealById(req, res) {
 
     return success(res, { meal: toMealPayload(data) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'meal.get_error' }, 'meal')
     return failure(res, 'Failed to fetch meal', 500)
   }
 }
 
 async function createMeal(req, res) {
+  req.log?.warn({ ...userIdFromReq(req), event: 'meal.create_disabled' }, 'meal')
   return failure(
     res,
     'Operación deshabilitada: el catálogo global de comidas ya no se usa.',
@@ -89,6 +95,7 @@ async function updateMeal(req, res) {
 }
 
 async function deleteMeal(req, res) {
+  req.log?.warn({ ...userIdFromReq(req), event: 'meal.delete_disabled', mealId: req.params.id }, 'meal')
   return failure(
     res,
     'Operación deshabilitada: el catálogo global de comidas ya no se usa.',

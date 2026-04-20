@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase')
-const { getNutritionDistribution } = require('../utils/nutritionCalculator')
+const { buildMealGroupGrams } = require('../utils/mealPortionTargets')
+const { userIdFromReq, pickBodyFields } = require('../utils/safeLog')
 
 const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 const DAILY_TYPES = ['Desayuno', 'Snack Mañana', 'Comida', 'Snack Tarde', 'Cena']
@@ -19,14 +20,6 @@ const WEEKLY_SLOTS = DAYS.flatMap((day) =>
     hour: SLOT_HOURS[tipo],
   }))
 )
-
-const DEFAULT_DISTRIBUTION_BY_MEAL = {
-  breakfast: 25,
-  snackAm: 10,
-  lunch: 30,
-  snackPm: 10,
-  dinner: 25,
-}
 
 const GROUP_GRAMS_PER_PORTION = {
   verduras: 75,
@@ -48,39 +41,6 @@ const GROUP_TO_BASE_INGREDIENT = {
   grasas_saludables: 'aguacate',
 }
 
-const INGREDIENT_GROUP_MAP = {
-  aceite: 'grasas_saludables',
-  aguacate: 'grasas_saludables',
-  arroz: 'cereales_tuberculos',
-  avena: 'cereales_tuberculos',
-  calabacita: 'verduras',
-  caldo: 'verduras',
-  cebolla: 'verduras',
-  chia: 'grasas_saludables',
-  espinaca: 'verduras',
-  frijol: 'leguminosas',
-  huevo: 'proteina_animal_o_alternativas',
-  jicama: 'verduras',
-  jitomate: 'verduras',
-  'leche de avena': 'lacteos_o_sustitutos',
-  lechuga: 'verduras',
-  lenteja: 'leguminosas',
-  manzana: 'frutas',
-  nopal: 'verduras',
-  pan: 'cereales_tuberculos',
-  papa: 'cereales_tuberculos',
-  papaya: 'frutas',
-  pavo: 'proteina_animal_o_alternativas',
-  pepino: 'verduras',
-  pera: 'frutas',
-  platano: 'frutas',
-  pollo: 'proteina_animal_o_alternativas',
-  res: 'proteina_animal_o_alternativas',
-  tortilla: 'cereales_tuberculos',
-  yogurt: 'lacteos_o_sustitutos',
-  zanahoria: 'verduras',
-}
-
 function normalizeIngredientId(value) {
   return String(value || '')
     .toLowerCase()
@@ -90,24 +50,12 @@ function normalizeIngredientId(value) {
     .trim()
 }
 
-function ingredientGroupById(ingredientId) {
-  return INGREDIENT_GROUP_MAP[normalizeIngredientId(ingredientId)] || null
-}
-
 function distributionKeyFromTipo(tipo) {
   if (tipo === 'Desayuno') return 'breakfast'
   if (tipo === 'Snack Mañana') return 'snackAm'
   if (tipo === 'Comida') return 'lunch'
   if (tipo === 'Snack Tarde') return 'snackPm'
   return 'dinner'
-}
-
-function tipoFromDistributionKey(key) {
-  if (key === 'breakfast') return 'Desayuno'
-  if (key === 'snackAm') return 'Snack Mañana'
-  if (key === 'lunch') return 'Comida'
-  if (key === 'snackPm') return 'Snack Tarde'
-  return 'Cena'
 }
 
 function profileGoalToCalculatorGoal(objectiveGoal) {
@@ -131,107 +79,6 @@ function roundToOne(value) {
 function toFiniteNumber(value, fallback = 0) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function normalizeDistribution(raw) {
-  const merged = {
-    breakfast: toFiniteNumber(raw?.breakfast, DEFAULT_DISTRIBUTION_BY_MEAL.breakfast),
-    snackAm: toFiniteNumber(raw?.snackAm, DEFAULT_DISTRIBUTION_BY_MEAL.snackAm),
-    lunch: toFiniteNumber(raw?.lunch, DEFAULT_DISTRIBUTION_BY_MEAL.lunch),
-    snackPm: toFiniteNumber(raw?.snackPm, DEFAULT_DISTRIBUTION_BY_MEAL.snackPm),
-    dinner: toFiniteNumber(raw?.dinner, DEFAULT_DISTRIBUTION_BY_MEAL.dinner),
-  }
-
-  const total = Object.values(merged).reduce((acc, value) => acc + Math.max(0, value), 0)
-  if (total <= 0) {
-    return {
-      breakfast: 0.25,
-      snackAm: 0.1,
-      lunch: 0.3,
-      snackPm: 0.1,
-      dinner: 0.25,
-    }
-  }
-
-  return {
-    breakfast: Math.max(0, merged.breakfast) / total,
-    snackAm: Math.max(0, merged.snackAm) / total,
-    lunch: Math.max(0, merged.lunch) / total,
-    snackPm: Math.max(0, merged.snackPm) / total,
-    dinner: Math.max(0, merged.dinner) / total,
-  }
-}
-
-function buildMealGroupGrams(portionsByGroup, distributionByMeal, options = {}) {
-  const goal = options.goal || 'healthy'
-  const mealCount = [3, 4, 5].includes(Number(options.mealCount)) ? Number(options.mealCount) : 5
-  const { foodGroups } = getNutritionDistribution({ goal, mealCount })
-
-  const groupKeyMap = {
-    verduras: 'verduras',
-    frutas: 'frutas',
-    cereales_tuberculos: 'cerealesYTuberculos',
-    leguminosas: 'leguminosas',
-    proteina_animal_o_alternativas: 'proteina',
-    lacteos_o_sustitutos: 'lacteos',
-    grasas_saludables: null,
-  }
-
-  const keys = ['breakfast', 'snackAm', 'lunch', 'snackPm', 'dinner']
-  const result = {
-    breakfast: {},
-    snackAm: {},
-    lunch: {},
-    snackPm: {},
-    dinner: {},
-  }
-
-  for (const group of Object.keys(GROUP_GRAMS_PER_PORTION)) {
-    const dailyPortions = toFiniteNumber(portionsByGroup?.[group], 0)
-    const dailyGrams = dailyPortions * GROUP_GRAMS_PER_PORTION[group]
-
-    const mappedGroup = groupKeyMap[group]
-    const rawShares = keys.map((key) => {
-      const tipo = tipoFromDistributionKey(key)
-      const mealPercent = toFiniteNumber(distributionByMeal?.[key], 0)
-
-      if (!mappedGroup) {
-        return mealPercent
-      }
-
-      const groupPercent = toFiniteNumber(foodGroups?.[tipo]?.[mappedGroup], 0)
-      return mealPercent * groupPercent
-    })
-
-    let sumShares = rawShares.reduce((acc, value) => acc + Math.max(0, value), 0)
-    let shares = rawShares
-
-    // For groups with zero shares (e.g. not modeled), fallback to meal distribution.
-    if (sumShares <= 0) {
-      shares = keys.map((key) => toFiniteNumber(distributionByMeal?.[key], 0))
-      sumShares = shares.reduce((acc, value) => acc + Math.max(0, value), 0)
-    }
-
-    const gramsByMeal = {
-      breakfast: 0,
-      snackAm: 0,
-      lunch: 0,
-      snackPm: 0,
-      dinner: 0,
-    }
-
-    if (dailyGrams > 0 && sumShares > 0) {
-      keys.forEach((key, idx) => {
-        gramsByMeal[key] = (dailyGrams * Math.max(0, shares[idx])) / sumShares
-      })
-    }
-
-    keys.forEach((key) => {
-      result[key][group] = gramsByMeal[key]
-    })
-  }
-
-  return result
 }
 
 function buildGeneratedMeal({ userId, week, day, tipo, slotId, groupGramsByMeal }) {
@@ -509,6 +356,7 @@ async function ensureWeekRow(userId, week) {
 async function getMyPlan(req, res) {
   try {
     const week = req.query.week || getIsoWeekString()
+    req.log?.debug({ ...userIdFromReq(req), event: 'plan.get_my', week }, 'plan')
     const weekRow = await getWeekRow(req.user.id, week)
 
     if (!weekRow) {
@@ -518,6 +366,7 @@ async function getMyPlan(req, res) {
     const slots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(weekRow, slots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.get_my_error' }, 'plan')
     return failure(res, 'Failed to fetch meal plan', 500)
   }
 }
@@ -525,6 +374,7 @@ async function getMyPlan(req, res) {
 async function generateMyPlan(req, res) {
   try {
     const week = req.body?.week || getIsoWeekString()
+    req.log?.info({ ...userIdFromReq(req), event: 'plan.generate', week }, 'plan')
 
     // Require an active nutrition plan version with portions set.
     const [
@@ -563,10 +413,10 @@ async function generateMyPlan(req, res) {
     }
 
     const portionsByGroup = activePlan.portions_by_group || {}
-    const distribution = normalizeDistribution(activePlan.distribution_by_meal || {})
+    const rawDistribution = activePlan.distribution_by_meal || {}
     const goal = profileGoalToCalculatorGoal(nutritionProfile?.objective_goal)
     const mealCount = Math.max(3, Math.min(5, toFiniteNumber(nutritionProfile?.meals_per_day, 5)))
-    const mealGroupGramsByKey = buildMealGroupGrams(portionsByGroup, distribution, { goal, mealCount })
+    const mealGroupGramsByKey = buildMealGroupGrams(portionsByGroup, rawDistribution, { goal, mealCount })
 
     const slots = DAYS.flatMap((day) =>
       DAILY_TYPES.map((tipo) => {
@@ -624,8 +474,10 @@ async function generateMyPlan(req, res) {
       return failure(res, insertError.message, 400)
     }
 
+    req.log?.info({ ...userIdFromReq(req), event: 'plan.generate_ok', week }, 'plan')
     return success(res, { plan: normalizeWeekPlan(weekRow, insertedSlots || []) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.generate_error' }, 'plan')
     return failure(res, 'Failed to generate meal plan', 500)
   }
 }
@@ -633,6 +485,17 @@ async function generateMyPlan(req, res) {
 async function updateMyWeekState(req, res) {
   try {
     const { mealOverrides, ingredientMultipliers, groceryAdjustments, suggestionPreferences, week } = req.body || {}
+    req.log?.info(
+      {
+        ...userIdFromReq(req),
+        event: 'plan.week_state_update',
+        week: week || getIsoWeekString(),
+        hasOverrides: mealOverrides !== undefined,
+        hasMultipliers: ingredientMultipliers !== undefined,
+        hasGroceryAdj: groceryAdjustments !== undefined,
+      },
+      'plan'
+    )
 
     const selectedWeek = week || getIsoWeekString()
     const weekRow = await ensureWeekRow(req.user.id, selectedWeek)
@@ -697,6 +560,7 @@ async function updateMyWeekState(req, res) {
     const refreshedSlots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(refreshedWeekRow, refreshedSlots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.week_state_error' }, 'plan')
     return failure(res, 'Failed to update week state', 500)
   }
 }
@@ -704,6 +568,10 @@ async function updateMyWeekState(req, res) {
 async function updateMySlot(req, res) {
   try {
     const { slot, meal, week } = req.body || {}
+    req.log?.info(
+      { ...userIdFromReq(req), event: 'plan.slot_update', ...pickBodyFields({ slot, week }, ['slot', 'week']) },
+      'plan'
+    )
 
     if (!slot || typeof slot !== 'string') {
       return failure(res, 'slot is required', 400)
@@ -773,6 +641,7 @@ async function updateMySlot(req, res) {
     const refreshedSlots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(weekRow, refreshedSlots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.slot_update_error' }, 'plan')
     return failure(res, 'Failed to update slot', 500)
   }
 }
@@ -780,6 +649,14 @@ async function updateMySlot(req, res) {
 async function getMySlotAlternatives(req, res) {
   try {
     const { slotId, currentMealId, week } = req.body || {}
+    req.log?.debug(
+      {
+        ...userIdFromReq(req),
+        event: 'plan.slot_alternatives',
+        ...pickBodyFields({ slotId, currentMealId, week }, ['slotId', 'currentMealId', 'week']),
+      },
+      'plan'
+    )
 
     if (!slotId || typeof slotId !== 'string') {
       return failure(res, 'slotId is required', 400)
@@ -828,6 +705,7 @@ async function getMySlotAlternatives(req, res) {
       suggestedMeals: (meals || []).map(toCatalogMealPayload),
     })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.slot_alternatives_error' }, 'plan')
     return failure(res, 'Failed to fetch slot alternatives', 500)
   }
 }
@@ -835,6 +713,14 @@ async function getMySlotAlternatives(req, res) {
 async function replaceMySlotIngredient(req, res) {
   try {
     const { slot, ingredientIndex, nextIngredientId, week } = req.body || {}
+    req.log?.info(
+      {
+        ...userIdFromReq(req),
+        event: 'plan.replace_ingredient',
+        ...pickBodyFields({ slot, ingredientIndex, week }, ['slot', 'ingredientIndex', 'week']),
+      },
+      'plan'
+    )
 
     if (!slot || typeof ingredientIndex !== 'number' || !nextIngredientId) {
       return failure(res, 'slot, ingredientIndex(number) and nextIngredientId are required')
@@ -861,10 +747,18 @@ async function replaceMySlotIngredient(req, res) {
       return failure(res, 'Slot not found in current plan', 404)
     }
 
-    const mealPayload = slotRow.meal_payload
-    if (!mealPayload || typeof mealPayload !== 'object') {
+    // Misma regla que normalizeWeekPlan: si hay override de comida, es el meal efectivo en API/UI.
+    const hasMealOverride =
+      slotRow.meal_override_payload &&
+      typeof slotRow.meal_override_payload === 'object' &&
+      !Array.isArray(slotRow.meal_override_payload)
+
+    const baseMeal = hasMealOverride ? slotRow.meal_override_payload : slotRow.meal_payload
+    if (!baseMeal || typeof baseMeal !== 'object') {
       return failure(res, 'Slot has no generated meal payload', 400)
     }
+
+    const mealPayload = JSON.parse(JSON.stringify(baseMeal))
 
     const ingredients = Array.isArray(mealPayload.ingredientes) ? [...mealPayload.ingredientes] : []
     if (ingredientIndex < 0 || ingredientIndex >= ingredients.length) {
@@ -872,15 +766,7 @@ async function replaceMySlotIngredient(req, res) {
     }
 
     const currentIngredient = ingredients[ingredientIndex]
-    const currentId = normalizeIngredientId(currentIngredient?.id)
     const nextId = normalizeIngredientId(nextIngredientId)
-
-    const currentGroup = ingredientGroupById(currentId)
-    const nextGroup = ingredientGroupById(nextId)
-
-    if (!currentGroup || !nextGroup || currentGroup !== nextGroup) {
-      return failure(res, 'Ingredient replacement must stay within the same food group', 400)
-    }
 
     ingredients[ingredientIndex] = {
       ...currentIngredient,
@@ -892,11 +778,13 @@ async function replaceMySlotIngredient(req, res) {
       ingredientes: ingredients,
     }
 
+    const dbPatch = hasMealOverride
+      ? { meal_override_payload: nextMealPayload }
+      : { meal_payload: nextMealPayload }
+
     const { error: updateError } = await supabaseAdmin
       .from('meal_plan_slots')
-      .update({
-        meal_payload: nextMealPayload,
-      })
+      .update(dbPatch)
       .eq('id', slotRow.id)
 
     if (updateError) {
@@ -906,6 +794,7 @@ async function replaceMySlotIngredient(req, res) {
     const slots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(weekRow, slots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.replace_ingredient_error' }, 'plan')
     return failure(res, 'Failed to replace ingredient', 500)
   }
 }
@@ -913,6 +802,10 @@ async function replaceMySlotIngredient(req, res) {
 async function completeMySlot(req, res) {
   try {
     const { slot, completed, week } = req.body || {}
+    req.log?.info(
+      { ...userIdFromReq(req), event: 'plan.complete_slot', ...pickBodyFields({ slot, completed, week }, ['slot', 'completed', 'week']) },
+      'plan'
+    )
 
     if (!slot || typeof completed !== 'boolean') {
       return failure(res, 'slot and completed(boolean) are required')
@@ -946,6 +839,7 @@ async function completeMySlot(req, res) {
     const slots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(weekRow, slots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.complete_slot_error' }, 'plan')
     return failure(res, 'Failed to complete slot', 500)
   }
 }
@@ -953,6 +847,7 @@ async function completeMySlot(req, res) {
 async function updateMyGrocery(req, res) {
   try {
     const { groceryState, week } = req.body || {}
+    req.log?.info({ ...userIdFromReq(req), event: 'plan.grocery_update', week: week || getIsoWeekString() }, 'plan')
 
     if (groceryState === undefined) {
       return failure(res, 'groceryState is required')
@@ -978,6 +873,7 @@ async function updateMyGrocery(req, res) {
     const slots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(data, slots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.grocery_error' }, 'plan')
     return failure(res, 'Failed to update grocery state', 500)
   }
 }
@@ -985,10 +881,12 @@ async function updateMyGrocery(req, res) {
 async function getUserPlan(req, res) {
   try {
     if (!(await ensureAdmin(req.user.id))) {
+      req.log?.warn({ ...userIdFromReq(req), event: 'plan.admin_plan_forbidden' }, 'plan')
       return failure(res, 'Admin access required', 403)
     }
 
     const { userId } = req.params
+    req.log?.info({ ...userIdFromReq(req), event: 'plan.admin_get_user_plan', targetUserId: userId }, 'plan')
     const week = req.query.week || getIsoWeekString()
 
     const weekRow = await getWeekRow(userId, week)
@@ -999,6 +897,7 @@ async function getUserPlan(req, res) {
     const slots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(weekRow, slots) })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.admin_get_user_plan_error' }, 'plan')
     return failure(res, 'Failed to fetch user plan', 500)
   }
 }
@@ -1007,9 +906,11 @@ async function getCombinedPlan(req, res) {
   try {
     const { otherUserId } = req.params
     const week = req.query.week || getIsoWeekString()
+    req.log?.info({ ...userIdFromReq(req), event: 'plan.combined', otherUserId, week }, 'plan')
 
     const canReadOther = await ensureSharedReadAccess(otherUserId, req.user.id)
     if (!canReadOther) {
+      req.log?.warn({ ...userIdFromReq(req), event: 'plan.combined_forbidden', otherUserId }, 'plan')
       return failure(res, 'Not allowed to read selected user plan', 403)
     }
 
@@ -1077,6 +978,7 @@ async function getCombinedPlan(req, res) {
       combinedSlots,
     })
   } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.combined_error' }, 'plan')
     return failure(res, 'Failed to fetch combined plan', 500)
   }
 }

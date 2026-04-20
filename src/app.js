@@ -21,10 +21,9 @@ const referenceRoutes = require('./routes/reference')
 
 const app = express()
 const port = Number(process.env.PORT) || 3000
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173'
 
 app.use(helmet())
-app.use(cors({ origin: clientUrl, credentials: true }))
+app.use(cors({ origin: corsOriginCallback, credentials: true }))
 app.use(
   pinoHttp({
     logger,

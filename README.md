@@ -33,6 +33,7 @@ LOG_LEVEL=info
 ```
 
 - **`CLIENT_URL`**: origen principal del frontend. **`CLIENT_URLS`** (opcional): lista de orígenes adicionales permitidos por CORS (credenciales); útil para previews de Netlify o varios dominios.
+- La app **Capacitor** (Android/iOS) usa orígenes como `https://localhost`; el API los permite siempre (no hace falta listarlos en `CLIENT_URLS`).
 - **`TRUST_PROXY`**: pon `1` en producción si el Node va detrás de un proxy que añade `X-Forwarded-*`; así `req.ip` y el rate limiting usan la IP del cliente.
 - **`RATE_LIMIT_DISABLED`**: `1` solo para depuración local; desactiva límites en rutas de auth.
 - **`LOG_LEVEL`**: nivel de [Pino](https://github.com/pinojs/pino) (`trace`, `debug`, `info`, `warn`, `error`, `fatal`). Por defecto `info` en producción y `debug` en desarrollo.

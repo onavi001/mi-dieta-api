@@ -2,7 +2,17 @@
  * Orígenes permitidos para CORS (credenciales).
  * CLIENT_URL: un origen (p. ej. https://mi-dieta.netlify.app)
  * CLIENT_URLS: lista separada por comas o espacios (preview Netlify, staging, etc.)
+ *
+ * Capacitor (app nativa) sirve el bundle desde un origen fijo del WebView, no desde Netlify.
+ * Sin permitirlos, el login falla con "Failed to fetch" (el navegador oculta el error CORS).
  */
+const CAPACITOR_WEBVIEW_ORIGINS = new Set([
+  'https://localhost', // Android: capacitor.config server.androidScheme https
+  'capacitor://localhost', // iOS / algunos entornos
+  'ionic://localhost', // Ionic/Capacitor legacy
+  'http://localhost', // algunos builds Android / depuración
+])
+
 function parseAllowedOrigins() {
   const merged = [process.env.CLIENT_URL, process.env.CLIENT_URLS].filter(Boolean).join(',')
   const list = merged
@@ -21,6 +31,10 @@ function corsOriginCallback(origin, callback) {
 
   // Peticiones sin Origin (curl, health checks, mismo host)
   if (!origin) {
+    return callback(null, true)
+  }
+
+  if (CAPACITOR_WEBVIEW_ORIGINS.has(origin)) {
     return callback(null, true)
   }
 

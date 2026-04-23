@@ -1,6 +1,8 @@
 const path = require('path')
+const { enrichIngredientReferenceWithPortions } = require('../data/ingredientPortionRules')
 
-const payload = require(path.join(__dirname, '../data/ingredientReference.json'))
+const basePayload = require(path.join(__dirname, '../data/ingredientReference.json'))
+const payload = enrichIngredientReferenceWithPortions(basePayload)
 
 function getIngredientReference(req, res) {
   req.log?.debug({ event: 'reference.ingredients' }, 'reference')

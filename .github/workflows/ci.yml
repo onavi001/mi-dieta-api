@@ -21,3 +21,6 @@ jobs:
 
       - name: Syntax check (all JS under src/)
         run: npm run check-syntax
+
+      - name: Ingredient portion overrides (strict 100% coverage)
+        run: npm run reference:portion-report:strict

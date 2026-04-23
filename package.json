@@ -7,6 +7,10 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
     "check-syntax": "node scripts/check-syntax.js",
+    "reference:portion-equivalents": "node scripts/enrich-ingredient-reference-portions.js",
+    "reference:portion-report": "node scripts/report-ingredient-portion-coverage.js",
+    "reference:portion-report:strict": "node scripts/report-ingredient-portion-coverage.js --strict",
+    "reference:portion-overrides:sync": "node scripts/sync-ingredient-portion-overrides.js",
     "seed:meals": "node scripts/seed-meals.mjs",
     "seed:meals:dry": "node scripts/seed-meals.mjs --dry-run",
     "verify:meals": "node scripts/verify-meals.mjs"

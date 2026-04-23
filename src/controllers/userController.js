@@ -248,7 +248,7 @@ async function resetMyData(req, res) {
       supabaseAdmin.from('meal_plan_weeks').delete().eq('user_id', userId),
       supabaseAdmin
         .from('profiles')
-        .update({ nutritional_profile: {} })
+        .update({ nutritional_profile: {}, daily_engagement: {} })
         .eq('id', userId),
     ])
 
@@ -275,8 +275,111 @@ async function resetMyData(req, res) {
   }
 }
 
+function normalizeDailyEngagement(value) {
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const mood = typeof record.mood === 'string' ? record.mood : null
+  const date = typeof record.date === 'string' ? record.date : null
+  const streak = typeof record.streak === 'number' && Number.isFinite(record.streak) && record.streak >= 0
+    ? Math.floor(record.streak)
+    : 0
+  const lastGoodDate = typeof record.lastGoodDate === 'string' ? record.lastGoodDate : null
+  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : null
+
+  return {
+    date,
+    mood,
+    streak,
+    lastGoodDate,
+    updatedAt,
+  }
+}
+
+async function getMyDailyEngagement(req, res) {
+  try {
+    req.log?.debug({ ...userIdFromReq(req), event: 'user.daily_engagement_get' }, 'user')
+    const { data, error } = await supabaseAdmin
+      .from('profiles')
+      .select('daily_engagement')
+      .eq('id', req.user.id)
+      .maybeSingle()
+
+    if (error) {
+      return failure(res, error.message, 400)
+    }
+
+    return success(res, { dailyEngagement: normalizeDailyEngagement(data?.daily_engagement) })
+  } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.daily_engagement_get_error' }, 'user')
+    return failure(res, 'Failed to fetch daily engagement', 500)
+  }
+}
+
+async function updateMyDailyEngagement(req, res) {
+  try {
+    const payload = normalizeDailyEngagement(req.body?.dailyEngagement)
+    req.log?.info(
+      { ...userIdFromReq(req), event: 'user.daily_engagement_update', mood: payload.mood, date: payload.date, streak: payload.streak },
+      'user'
+    )
+
+    const nextPayload = {
+      ...payload,
+      updatedAt: new Date().toISOString(),
+    }
+
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .update({ daily_engagement: nextPayload })
+      .eq('id', req.user.id)
+
+    if (error) {
+      return failure(res, error.message, 400)
+    }
+
+    return success(res, { dailyEngagement: nextPayload })
+  } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.daily_engagement_update_error' }, 'user')
+    return failure(res, 'Failed to update daily engagement', 500)
+  }
+}
+
+async function trackMyEvent(req, res) {
+  try {
+    const event = typeof req.body?.event === 'string' ? req.body.event.slice(0, 80) : ''
+    const context = req.body?.context && typeof req.body.context === 'object' && !Array.isArray(req.body.context)
+      ? req.body.context
+      : {}
+    if (!event) {
+      return failure(res, 'event is required', 400)
+    }
+
+    const insertPayload = {
+      user_id: req.user.id,
+      event_name: event,
+      context,
+      platform: 'web',
+    }
+
+    const { error } = await supabaseAdmin
+      .from('app_event_logs')
+      .insert(insertPayload)
+
+    if (error) {
+      return failure(res, error.message, 400)
+    }
+
+    return success(res, { tracked: true }, 201)
+  } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.track_event_error' }, 'user')
+    return failure(res, 'Failed to track event', 500)
+  }
+}
+
 module.exports = {
   getMyProfile,
+  getMyDailyEngagement,
+  updateMyDailyEngagement,
+  trackMyEvent,
   listUsers,
   getUserById,
   updateUser,

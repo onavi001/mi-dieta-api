@@ -6,8 +6,12 @@ CREATE TABLE IF NOT EXISTS profiles (
   name TEXT NOT NULL,
   role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   nutritional_profile JSONB DEFAULT '{}',
+  daily_engagement JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE IF EXISTS profiles
+  ADD COLUMN IF NOT EXISTS daily_engagement JSONB DEFAULT '{}'::jsonb;
 
 -- Official meal catalog used for alternatives and curated dish suggestions.
 CREATE TABLE IF NOT EXISTS meals (
@@ -231,6 +235,15 @@ CREATE TABLE IF NOT EXISTS nutrition_progress_logs (
   CONSTRAINT nutrition_progress_adherence_check CHECK (adherence_percent IS NULL OR (adherence_percent >= 0 AND adherence_percent <= 100))
 );
 
+CREATE TABLE IF NOT EXISTS app_event_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  event_name TEXT NOT NULL,
+  context JSONB DEFAULT '{}'::jsonb,
+  platform TEXT DEFAULT 'web',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_meal_plan_weeks_user_week ON meal_plan_weeks(user_id, week);
 CREATE INDEX IF NOT EXISTS idx_meal_plan_slots_week_slot ON meal_plan_slots(week_id, slot_id);
 CREATE INDEX IF NOT EXISTS idx_meals_tipo_nombre ON meals(tipo, nombre);
@@ -239,6 +252,7 @@ CREATE INDEX IF NOT EXISTS idx_plan_share_invites_target_status ON plan_share_in
 CREATE INDEX IF NOT EXISTS idx_nutrition_plan_versions_user_start ON nutrition_plan_versions(user_id, start_date DESC);
 CREATE INDEX IF NOT EXISTS idx_nutrition_plan_versions_user_active ON nutrition_plan_versions(user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_nutrition_progress_logs_user_date ON nutrition_progress_logs(user_id, log_date DESC);
+CREATE INDEX IF NOT EXISTS idx_app_event_logs_user_created ON app_event_logs(user_id, created_at DESC);
 
 -- Trigger: auto-create profile on user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -314,6 +328,7 @@ ALTER TABLE plan_share_invites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nutrition_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nutrition_plan_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nutrition_progress_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_event_logs ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies
 DROP POLICY IF EXISTS "profiles_select_own_or_shared" ON profiles;
@@ -614,3 +629,14 @@ DROP POLICY IF EXISTS "nutrition_progress_logs_delete_own_or_admin" ON nutrition
 CREATE POLICY "nutrition_progress_logs_delete_own_or_admin"
 ON nutrition_progress_logs FOR DELETE
 USING (user_id = auth.uid());
+
+-- App event logs policies
+DROP POLICY IF EXISTS "app_event_logs_select_own_or_admin" ON app_event_logs;
+CREATE POLICY "app_event_logs_select_own_or_admin"
+ON app_event_logs FOR SELECT
+USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "app_event_logs_insert_own_or_admin" ON app_event_logs;
+CREATE POLICY "app_event_logs_insert_own_or_admin"
+ON app_event_logs FOR INSERT
+WITH CHECK (user_id = auth.uid());

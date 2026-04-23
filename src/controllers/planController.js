@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase')
 const { buildMealGroupGrams } = require('../utils/mealPortionTargets')
+const { buildIngredientAfterSameGroupSwap } = require('../utils/ingredientReplaceScaling')
 const { userIdFromReq, pickBodyFields } = require('../utils/safeLog')
 
 const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -766,12 +767,8 @@ async function replaceMySlotIngredient(req, res) {
     }
 
     const currentIngredient = ingredients[ingredientIndex]
-    const nextId = normalizeIngredientId(nextIngredientId)
 
-    ingredients[ingredientIndex] = {
-      ...currentIngredient,
-      id: nextId,
-    }
+    ingredients[ingredientIndex] = buildIngredientAfterSameGroupSwap(currentIngredient, nextIngredientId)
 
     const nextMealPayload = {
       ...mealPayload,

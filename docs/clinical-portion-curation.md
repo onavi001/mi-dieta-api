@@ -47,6 +47,10 @@ La app usa **una porción = `portionGramEquivalent` gramos** por ingrediente. Es
    npm run sync:ingredient-reference-bundle
    ```
 
+## Cambio de ingrediente en el plan (`PUT /plans/my/ingredient`)
+
+Al elegir otro ingrediente del **mismo grupo**, el backend recalcula `cantidad` en **gramos** para conservar el mismo número de **porciones de intercambio** (`gramos / portionGramEquivalent` del viejo × `portionGramEquivalent` del nuevo).
+
 ## Humanización (`humanPortionProfiles`)
 
 Cada perfil define `defaultUnit`, pasos permitidos y límites. Los `aliases` deben cubrir variantes de nombre que aparezcan en recetas. Tras cambios, vuelve a exportar el bundle del paso 7.

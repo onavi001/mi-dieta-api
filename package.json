@@ -11,6 +11,8 @@
     "reference:portion-report": "node scripts/report-ingredient-portion-coverage.js",
     "reference:portion-report:strict": "node scripts/report-ingredient-portion-coverage.js --strict",
     "reference:portion-overrides:sync": "node scripts/sync-ingredient-portion-overrides.js",
+    "reference:export-frontend-bundle": "node scripts/export-frontend-ingredient-reference-bundle.js",
+    "reference:curation-hints": "node scripts/report-portion-curation-review.js",
     "seed:meals": "node scripts/seed-meals.mjs",
     "seed:meals:dry": "node scripts/seed-meals.mjs --dry-run",
     "verify:meals": "node scripts/verify-meals.mjs"

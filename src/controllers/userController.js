@@ -294,6 +294,30 @@ function normalizeDailyEngagement(value) {
   }
 }
 
+function stableContextSignature(context) {
+  const normalize = (value) => {
+    if (Array.isArray(value)) {
+      return value.map((item) => normalize(item))
+    }
+    if (value && typeof value === 'object') {
+      return Object.keys(value)
+        .sort()
+        .reduce((acc, key) => {
+          acc[key] = normalize(value[key])
+          return acc
+        }, {})
+    }
+    if (value === undefined) return null
+    return value
+  }
+
+  try {
+    return JSON.stringify(normalize(context || {}))
+  } catch {
+    return '{}'
+  }
+}
+
 async function getMyDailyEngagement(req, res) {
   try {
     req.log?.debug({ ...userIdFromReq(req), event: 'user.daily_engagement_get' }, 'user')
@@ -349,14 +373,37 @@ async function trackMyEvent(req, res) {
     const context = req.body?.context && typeof req.body.context === 'object' && !Array.isArray(req.body.context)
       ? req.body.context
       : {}
+    const contextSignature = stableContextSignature(context)
     if (!event) {
       return failure(res, 'event is required', 400)
+    }
+
+    const dedupeWindowSeconds = 45
+    const dedupeSinceIso = new Date(Date.now() - dedupeWindowSeconds * 1000).toISOString()
+    const { data: recentEvent, error: recentError } = await supabaseAdmin
+      .from('app_event_logs')
+      .select('id, created_at')
+      .eq('user_id', req.user.id)
+      .eq('event_name', event)
+      .eq('context_signature', contextSignature)
+      .gte('created_at', dedupeSinceIso)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (recentError) {
+      return failure(res, recentError.message, 400)
+    }
+
+    if (recentEvent) {
+      return success(res, { tracked: true, deduped: true })
     }
 
     const insertPayload = {
       user_id: req.user.id,
       event_name: event,
       context,
+      context_signature: contextSignature,
       platform: 'web',
     }
 
@@ -368,7 +415,7 @@ async function trackMyEvent(req, res) {
       return failure(res, error.message, 400)
     }
 
-    return success(res, { tracked: true }, 201)
+    return success(res, { tracked: true, deduped: false }, 201)
   } catch (error) {
     req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.track_event_error' }, 'user')
     return failure(res, 'Failed to track event', 500)

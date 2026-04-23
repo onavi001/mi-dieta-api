@@ -240,9 +240,13 @@ CREATE TABLE IF NOT EXISTS app_event_logs (
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
   event_name TEXT NOT NULL,
   context JSONB DEFAULT '{}'::jsonb,
+  context_signature TEXT DEFAULT '{}' NOT NULL,
   platform TEXT DEFAULT 'web',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE IF EXISTS app_event_logs
+  ADD COLUMN IF NOT EXISTS context_signature TEXT DEFAULT '{}' NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_meal_plan_weeks_user_week ON meal_plan_weeks(user_id, week);
 CREATE INDEX IF NOT EXISTS idx_meal_plan_slots_week_slot ON meal_plan_slots(week_id, slot_id);
@@ -253,6 +257,8 @@ CREATE INDEX IF NOT EXISTS idx_nutrition_plan_versions_user_start ON nutrition_p
 CREATE INDEX IF NOT EXISTS idx_nutrition_plan_versions_user_active ON nutrition_plan_versions(user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_nutrition_progress_logs_user_date ON nutrition_progress_logs(user_id, log_date DESC);
 CREATE INDEX IF NOT EXISTS idx_app_event_logs_user_created ON app_event_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_event_logs_user_event_created ON app_event_logs(user_id, event_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_event_logs_user_event_sig_created ON app_event_logs(user_id, event_name, context_signature, created_at DESC);
 
 -- Trigger: auto-create profile on user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()

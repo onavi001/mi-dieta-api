@@ -19,6 +19,7 @@ CLIENT_URL=http://localhost:5173
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+PUBLIC_API_BASE_URL=http://localhost:3000
 
 # En PaaS detrás de proxy inverso (Render, Railway, Fly): IP real para rate limit
 # TRUST_PROXY=1
@@ -38,6 +39,7 @@ LOG_LEVEL=info
 - **`RATE_LIMIT_DISABLED`**: `1` solo para depuración local; desactiva límites en rutas de auth.
 - **`LOG_LEVEL`**: nivel de [Pino](https://github.com/pinojs/pino) (`trace`, `debug`, `info`, `warn`, `error`, `fatal`). Por defecto `info` en producción y `debug` en desarrollo.
 - **`SENTRY_DSN`**: si está definido, se capturan excepciones no controladas y se envían a Sentry; además los errores siguen registrándose en logs (stdout).
+- **`PUBLIC_API_BASE_URL`**: URL base que se muestra en Swagger (`servers[0].url`), por ejemplo tu dominio productivo.
 
 ## Seguridad (auth)
 
@@ -68,6 +70,13 @@ Health check:
 GET /health
 ```
 
+Swagger:
+
+```http
+GET /api/docs
+GET /api/docs.json
+```
+
 ## Scripts
 
 ```bash
@@ -78,6 +87,17 @@ npm run seed:meals
 npm run seed:meals:dry
 npm run verify:meals
 ```
+
+## Documentacion Swagger (OpenAPI)
+
+- UI interactiva: `http://localhost:3000/api/docs`
+- Especificacion JSON: `http://localhost:3000/api/docs.json`
+- Archivo fuente de la spec: `src/docs/openapi.js`
+
+Notas:
+
+- La mayoria de rutas usan `Bearer` token (`Authorization: Bearer <token>`).
+- Puedes usar el boton **Authorize** en Swagger UI para probar endpoints protegidos.
 
 ## Rutas principales
 

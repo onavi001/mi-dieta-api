@@ -6,6 +6,7 @@ const cors = require('cors')
 const helmet = require('helmet')
 const pinoHttp = require('pino-http')
 const Sentry = require('@sentry/node')
+const swaggerUi = require('swagger-ui-express')
 
 const logger = require('./utils/logger')
 const { genReqId, httpReqSerializer, httpResSerializer } = require('./utils/safeLog')
@@ -18,6 +19,7 @@ const shareRoutes = require('./routes/shares')
 const nutritionRoutes = require('./routes/nutrition')
 const mealRoutes = require('./routes/meals')
 const referenceRoutes = require('./routes/reference')
+const { openapiSpec } = require('./docs/openapi')
 
 const app = express()
 const port = Number(process.env.PORT) || 3000
@@ -48,6 +50,11 @@ app.use(express.json())
 app.get('/health', (req, res) => {
   res.json({ ok: true, data: { status: 'healthy' } })
 })
+
+app.get('/api/docs.json', (_req, res) => {
+  res.json(openapiSpec)
+})
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec))
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)

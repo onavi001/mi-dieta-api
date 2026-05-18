@@ -217,6 +217,48 @@ async function deleteUser(req, res) {
   }
 }
 
+async function deleteAllUserData(userId) {
+  const [
+    { error: sharesOwnerError },
+    { error: sharesTargetError },
+    { error: invitesOwnerError },
+    { error: invitesTargetError },
+    { error: progressError },
+    { error: versionsError },
+    { error: nutritionProfileError },
+    { error: weeksError },
+    { error: eventsError },
+    { error: profileResetError },
+  ] = await Promise.all([
+    supabaseAdmin.from('plan_shares').delete().eq('owner_user_id', userId),
+    supabaseAdmin.from('plan_shares').delete().eq('shared_with_user_id', userId),
+    supabaseAdmin.from('plan_share_invites').delete().eq('owner_user_id', userId),
+    supabaseAdmin.from('plan_share_invites').delete().eq('target_user_id', userId),
+    supabaseAdmin.from('nutrition_progress_logs').delete().eq('user_id', userId),
+    supabaseAdmin.from('nutrition_plan_versions').delete().eq('user_id', userId),
+    supabaseAdmin.from('nutrition_profiles').delete().eq('user_id', userId),
+    supabaseAdmin.from('meal_plan_weeks').delete().eq('user_id', userId),
+    supabaseAdmin.from('app_event_logs').delete().eq('user_id', userId),
+    supabaseAdmin
+      .from('profiles')
+      .update({ nutritional_profile: {}, daily_engagement: {} })
+      .eq('id', userId),
+  ])
+
+  return [
+    sharesOwnerError,
+    sharesTargetError,
+    invitesOwnerError,
+    invitesTargetError,
+    progressError,
+    versionsError,
+    nutritionProfileError,
+    weeksError,
+    eventsError,
+    profileResetError,
+  ].find(Boolean)
+}
+
 async function resetMyData(req, res) {
   try {
     if (req.user.id !== SELF_SERVICE_RESET_USER_ID) {
@@ -227,42 +269,7 @@ async function resetMyData(req, res) {
 
     req.log?.warn({ ...userIdFromReq(req), event: 'user.reset_self_service' }, 'user')
 
-    const [
-      { error: sharesOwnerError },
-      { error: sharesTargetError },
-      { error: invitesOwnerError },
-      { error: invitesTargetError },
-      { error: progressError },
-      { error: versionsError },
-      { error: nutritionProfileError },
-      { error: weeksError },
-      { error: profileResetError },
-    ] = await Promise.all([
-      supabaseAdmin.from('plan_shares').delete().eq('owner_user_id', userId),
-      supabaseAdmin.from('plan_shares').delete().eq('shared_with_user_id', userId),
-      supabaseAdmin.from('plan_share_invites').delete().eq('owner_user_id', userId),
-      supabaseAdmin.from('plan_share_invites').delete().eq('target_user_id', userId),
-      supabaseAdmin.from('nutrition_progress_logs').delete().eq('user_id', userId),
-      supabaseAdmin.from('nutrition_plan_versions').delete().eq('user_id', userId),
-      supabaseAdmin.from('nutrition_profiles').delete().eq('user_id', userId),
-      supabaseAdmin.from('meal_plan_weeks').delete().eq('user_id', userId),
-      supabaseAdmin
-        .from('profiles')
-        .update({ nutritional_profile: {}, daily_engagement: {} })
-        .eq('id', userId),
-    ])
-
-    const firstError = [
-      sharesOwnerError,
-      sharesTargetError,
-      invitesOwnerError,
-      invitesTargetError,
-      progressError,
-      versionsError,
-      nutritionProfileError,
-      weeksError,
-      profileResetError,
-    ].find(Boolean)
+    const firstError = await deleteAllUserData(userId)
 
     if (firstError) {
       return failure(res, firstError.message, 400)
@@ -272,6 +279,113 @@ async function resetMyData(req, res) {
   } catch (error) {
     req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.reset_self_service_error' }, 'user')
     return failure(res, 'Failed to reset my data', 500)
+  }
+}
+
+async function exportMyData(req, res) {
+  try {
+    const userId = req.user.id
+    req.log?.info({ ...userIdFromReq(req), event: 'user.export_data' }, 'user')
+
+    const [
+      { data: profile, error: profileError },
+      { data: nutritionProfiles, error: nutritionProfilesError },
+      { data: nutritionVersions, error: nutritionVersionsError },
+      { data: nutritionProgress, error: nutritionProgressError },
+      { data: mealPlanWeeks, error: mealPlanWeeksError },
+      { data: sharesOwned, error: sharesOwnedError },
+      { data: sharesReceived, error: sharesReceivedError },
+      { data: invitesOwned, error: invitesOwnedError },
+      { data: invitesReceived, error: invitesReceivedError },
+    ] = await Promise.all([
+      supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      supabaseAdmin.from('nutrition_profiles').select('*').eq('user_id', userId),
+      supabaseAdmin.from('nutrition_plan_versions').select('*').eq('user_id', userId),
+      supabaseAdmin.from('nutrition_progress_logs').select('*').eq('user_id', userId),
+      supabaseAdmin.from('meal_plan_weeks').select('*').eq('user_id', userId),
+      supabaseAdmin.from('plan_shares').select('*').eq('owner_user_id', userId),
+      supabaseAdmin.from('plan_shares').select('*').eq('shared_with_user_id', userId),
+      supabaseAdmin.from('plan_share_invites').select('*').eq('owner_user_id', userId),
+      supabaseAdmin.from('plan_share_invites').select('*').eq('target_user_id', userId),
+    ])
+
+    const firstError = [
+      profileError,
+      nutritionProfilesError,
+      nutritionVersionsError,
+      nutritionProgressError,
+      mealPlanWeeksError,
+      sharesOwnedError,
+      sharesReceivedError,
+      invitesOwnedError,
+      invitesReceivedError,
+    ].find(Boolean)
+
+    if (firstError) {
+      return failure(res, firstError.message, 400)
+    }
+
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      user: {
+        id: userId,
+        email: req.user.email || null,
+      },
+      profile: profile || null,
+      nutritionProfiles: nutritionProfiles || [],
+      nutritionPlanVersions: nutritionVersions || [],
+      nutritionProgressLogs: nutritionProgress || [],
+      mealPlanWeeks: mealPlanWeeks || [],
+      planShares: {
+        owned: sharesOwned || [],
+        received: sharesReceived || [],
+      },
+      planShareInvites: {
+        sent: invitesOwned || [],
+        received: invitesReceived || [],
+      },
+    }
+
+    return success(res, { export: exportPayload })
+  } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.export_data_error' }, 'user')
+    return failure(res, 'Failed to export user data', 500)
+  }
+}
+
+async function deleteMyAccount(req, res) {
+  try {
+    const confirmation = typeof req.body?.confirm === 'string' ? req.body.confirm.trim().toUpperCase() : ''
+    if (confirmation !== 'BORRAR') {
+      return failure(res, 'Confirmation required: send confirm=BORRAR', 400)
+    }
+
+    const userId = req.user.id
+    req.log?.warn({ ...userIdFromReq(req), event: 'user.delete_account' }, 'user')
+
+    const dataError = await deleteAllUserData(userId)
+    if (dataError) {
+      return failure(res, dataError.message, 400)
+    }
+
+    const { error: profileDeleteError } = await supabaseAdmin
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+
+    if (profileDeleteError) {
+      return failure(res, profileDeleteError.message, 400)
+    }
+
+    const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+    if (authDeleteError) {
+      return failure(res, authDeleteError.message, 400)
+    }
+
+    return success(res, { deleted: true })
+  } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'user.delete_account_error' }, 'user')
+    return failure(res, 'Failed to delete account', 500)
   }
 }
 
@@ -432,4 +546,6 @@ module.exports = {
   updateUser,
   deleteUser,
   resetMyData,
+  exportMyData,
+  deleteMyAccount,
 }

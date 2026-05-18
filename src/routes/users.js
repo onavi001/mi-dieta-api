@@ -10,6 +10,8 @@ const {
   updateUser,
   deleteUser,
   resetMyData,
+  exportMyData,
+  deleteMyAccount,
 } = require('../controllers/userController')
 
 const router = express.Router()
@@ -19,6 +21,8 @@ router.get('/me/daily-engagement', authMiddleware, getMyDailyEngagement)
 router.put('/me/daily-engagement', authMiddleware, updateMyDailyEngagement)
 router.post('/me/events', authMiddleware, trackMyEvent)
 router.post('/me/reset-data', authMiddleware, resetMyData)
+router.get('/me/export-data', authMiddleware, exportMyData)
+router.post('/me/delete-account', authMiddleware, deleteMyAccount)
 router.get('/', authMiddleware, listUsers)
 router.get('/:id', authMiddleware, getUserById)
 router.put('/:id', authMiddleware, updateUser)

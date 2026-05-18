@@ -354,17 +354,116 @@ async function ensureWeekRow(userId, week) {
   return data
 }
 
+/** Most recent week row for this user that has at least one slot (optionally excluding a week). */
+async function getLatestWeekRowWithSlots(userId, excludeWeek = null) {
+  const { data: weekRows, error } = await supabaseAdmin
+    .from('meal_plan_weeks')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(12)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  for (const row of weekRows || []) {
+    if (excludeWeek && row.week === excludeWeek) continue
+    const slots = await getSlotsByWeekId(row.id)
+    if (slots.length > 0) {
+      return { weekRow: row, slots }
+    }
+  }
+
+  return null
+}
+
+/** Copy meals and week preferences from a prior week into the target ISO week (resets completion). */
+async function rolloverWeekPlan(userId, targetWeek, sourceWeekRow, sourceSlots) {
+  const targetWeekRow = await ensureWeekRow(userId, targetWeek)
+
+  const { error: weekMetaError } = await supabaseAdmin
+    .from('meal_plan_weeks')
+    .update({
+      grocery_state: normalizeJsonObject(sourceWeekRow.grocery_state),
+      grocery_adjustments: normalizeJsonArray(sourceWeekRow.grocery_adjustments),
+      suggestion_preferences: normalizeSuggestionPreferences(sourceWeekRow.suggestion_preferences),
+    })
+    .eq('id', targetWeekRow.id)
+
+  if (weekMetaError) {
+    throw new Error(weekMetaError.message)
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('meal_plan_slots')
+    .delete()
+    .eq('week_id', targetWeekRow.id)
+
+  if (deleteError) {
+    throw new Error(deleteError.message)
+  }
+
+  const rowsToInsert = sourceSlots.map((slot) => ({
+    week_id: targetWeekRow.id,
+    slot_id: slot.slot_id,
+    day: slot.day,
+    tipo: slot.tipo,
+    hour: slot.hour,
+    meal_payload: slot.meal_payload,
+    meal_override_payload: slot.meal_override_payload,
+    ingredient_multipliers: slot.ingredient_multipliers || {},
+    completed: false,
+  }))
+
+  const { data: insertedSlots, error: insertError } = await supabaseAdmin
+    .from('meal_plan_slots')
+    .insert(rowsToInsert)
+    .select('*')
+
+  if (insertError) {
+    throw new Error(insertError.message)
+  }
+
+  const refreshedWeekRow = await getWeekRow(userId, targetWeek)
+  return {
+    weekRow: refreshedWeekRow || targetWeekRow,
+    slots: insertedSlots || [],
+  }
+}
+
 async function getMyPlan(req, res) {
   try {
     const week = req.query.week || getIsoWeekString()
-    req.log?.debug({ ...userIdFromReq(req), event: 'plan.get_my', week }, 'plan')
-    const weekRow = await getWeekRow(req.user.id, week)
+    const skipRollover = req.query.rollover === '0' || req.query.skipRollover === '1'
+    req.log?.debug({ ...userIdFromReq(req), event: 'plan.get_my', week, skipRollover }, 'plan')
 
-    if (!weekRow) {
+    let weekRow = await getWeekRow(req.user.id, week)
+    let slots = weekRow ? await getSlotsByWeekId(weekRow.id) : []
+
+    if ((!weekRow || slots.length === 0) && !skipRollover) {
+      const latest = await getLatestWeekRowWithSlots(req.user.id, week)
+      if (latest?.weekRow && latest.slots.length > 0) {
+        const rolled = await rolloverWeekPlan(req.user.id, week, latest.weekRow, latest.slots)
+        weekRow = rolled.weekRow
+        slots = rolled.slots
+        req.log?.info(
+          {
+            ...userIdFromReq(req),
+            event: 'plan.rollover',
+            fromWeek: latest.weekRow.week,
+            toWeek: week,
+            slotCount: slots.length,
+          },
+          'plan'
+        )
+      }
+    }
+
+    if (!weekRow || slots.length === 0) {
       return success(res, { plan: null })
     }
 
-    const slots = await getSlotsByWeekId(weekRow.id)
     return success(res, { plan: normalizeWeekPlan(weekRow, slots) })
   } catch (error) {
     req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.get_my_error' }, 'plan')

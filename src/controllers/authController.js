@@ -14,6 +14,16 @@ function isEmailRateLimitError(message) {
   return typeof message === 'string' && /email rate limit exceeded/i.test(message)
 }
 
+function getPasswordRecoveryRedirectUrl() {
+  const explicit = process.env.AUTH_RECOVERY_REDIRECT_URL
+  if (explicit && typeof explicit === 'string') {
+    return explicit.trim().replace(/\/$/, '')
+  }
+
+  const base = (process.env.CLIENT_URL || 'http://localhost:5173').trim().replace(/\/$/, '')
+  return `${base}/?auth=recovery`
+}
+
 async function register(req, res) {
   try {
     const { name, email, password } = req.body || {}
@@ -159,6 +169,100 @@ async function logout(req, res) {
   }
 }
 
+async function requestPasswordReset(req, res) {
+  try {
+    const { email } = req.body || {}
+    const safeEmail = typeof email === 'string' ? email.trim() : ''
+
+    if (!safeEmail) {
+      req.log?.info({ event: 'auth.password_reset_validation_fail' }, 'auth')
+      return failure(res, 'email is required')
+    }
+
+    const redirectTo = getPasswordRecoveryRedirectUrl()
+    req.log?.info({ event: 'auth.password_reset_request', ...emailDomain(safeEmail), redirectTo }, 'auth')
+
+    const { error } = await supabase.auth.resetPasswordForEmail(safeEmail, {
+      redirectTo,
+    })
+
+    if (error) {
+      req.log?.warn(
+        { event: 'auth.password_reset_supabase_error', ...emailDomain(safeEmail), code: error.code },
+        'auth'
+      )
+      if (isEmailRateLimitError(error.message)) {
+        return failure(
+          res,
+          'email rate limit exceeded: espera unos minutos o aumenta el limite en Supabase Auth > Rate Limits',
+          429
+        )
+      }
+    }
+
+    return success(res, {
+      sent: true,
+      message:
+        'Si existe una cuenta con ese correo, recibiras un enlace para restablecer tu contrasena.',
+    })
+  } catch (error) {
+    req.log?.error({ err: error, event: 'auth.password_reset_exception' }, 'auth')
+    return failure(res, 'Failed to request password reset', 500)
+  }
+}
+
+async function completePasswordRecovery(req, res) {
+  try {
+    const { access_token: accessToken, refresh_token: refreshToken, password } = req.body || {}
+    const safePassword = typeof password === 'string' ? password : ''
+
+    if (!accessToken || !refreshToken || !safePassword) {
+      req.log?.info({ event: 'auth.password_recovery_complete_validation_fail' }, 'auth')
+      return failure(res, 'access_token, refresh_token and password are required')
+    }
+
+    if (safePassword.length < 6) {
+      return failure(res, 'La contrasena debe tener al menos 6 caracteres')
+    }
+
+    req.log?.info({ event: 'auth.password_recovery_complete_attempt' }, 'auth')
+
+    const scopedClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+
+    const { data: sessionData, error: sessionError } = await scopedClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    })
+
+    if (sessionError) {
+      req.log?.warn({ event: 'auth.password_recovery_session_fail', code: sessionError.code }, 'auth')
+      return failure(res, sessionError.message, 401)
+    }
+
+    const { data: updateData, error: updateError } = await scopedClient.auth.updateUser({
+      password: safePassword,
+    })
+
+    if (updateError) {
+      req.log?.warn({ event: 'auth.password_recovery_update_fail', code: updateError.code }, 'auth')
+      return failure(res, updateError.message, 400)
+    }
+
+    const session = updateData.session || sessionData.session
+    const user = updateData.user || sessionData.user
+
+    if (!session?.access_token || !user?.id) {
+      return failure(res, 'No se pudo completar la recuperacion de contrasena', 400)
+    }
+
+    req.log?.info({ event: 'auth.password_recovery_complete_ok', userId: user.id }, 'auth')
+    return success(res, { user, session })
+  } catch (error) {
+    req.log?.error({ err: error, event: 'auth.password_recovery_complete_exception' }, 'auth')
+    return failure(res, 'Failed to complete password recovery', 500)
+  }
+}
+
 async function me(req, res) {
   try {
     const user = req.user
@@ -187,5 +291,7 @@ module.exports = {
   login,
   refresh,
   logout,
+  requestPasswordReset,
+  completePasswordRecovery,
   me,
 }

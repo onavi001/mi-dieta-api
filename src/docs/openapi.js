@@ -136,6 +136,36 @@ const openapiSpec = {
         responses: { 200: { description: 'Logged in', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiSuccess' } } } } },
       },
     },
+    '/api/auth/forgot-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Request password reset email',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { type: 'object', additionalProperties: true },
+            },
+          },
+        },
+        responses: { 200: { description: 'Reset email requested', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiSuccess' } } } } },
+      },
+    },
+    '/api/auth/recovery/complete': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Set new password after recovery link',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { type: 'object', additionalProperties: true },
+            },
+          },
+        },
+        responses: { 200: { description: 'Password updated', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiSuccess' } } } } },
+      },
+    },
     '/api/auth/refresh': {
       post: {
         tags: ['Auth'],

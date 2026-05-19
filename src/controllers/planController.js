@@ -665,6 +665,123 @@ async function updateMyWeekState(req, res) {
   }
 }
 
+function normalizeMealPayload(meal, slotTipo) {
+  return {
+    ...meal,
+    id: String(meal.id || ''),
+    tipo: slotTipo,
+    nombre: String(meal.nombre || ''),
+    receta: typeof meal.receta === 'string' ? meal.receta : '',
+    tip: typeof meal.tip === 'string' ? meal.tip : '',
+    tags: Array.isArray(meal.tags) ? meal.tags.filter((item) => typeof item === 'string') : [],
+    forbidden_ingredients: Array.isArray(meal.forbidden_ingredients)
+      ? meal.forbidden_ingredients.filter((item) => typeof item === 'string')
+      : Array.isArray(meal.forbiddenIngredients)
+        ? meal.forbiddenIngredients.filter((item) => typeof item === 'string')
+        : [],
+    ingredientes: Array.isArray(meal.ingredientes) ? meal.ingredientes : [],
+    groupPortions:
+      meal.groupPortions && typeof meal.groupPortions === 'object' && !Array.isArray(meal.groupPortions)
+        ? meal.groupPortions
+        : {},
+    realDishMetadata:
+      meal.realDishMetadata && typeof meal.realDishMetadata === 'object' && !Array.isArray(meal.realDishMetadata)
+        ? meal.realDishMetadata
+        : {},
+  }
+}
+
+async function ensureAllWeekSlots(weekRowId) {
+  const existing = await getSlotsByWeekId(weekRowId)
+  const existingIds = new Set(existing.map((row) => row.slot_id))
+  const missing = WEEKLY_SLOTS.filter((slot) => !existingIds.has(slot.slotId))
+
+  if (missing.length === 0) return existing
+
+  const rowsToInsert = missing.map((slot) => ({
+    week_id: weekRowId,
+    slot_id: slot.slotId,
+    day: slot.day,
+    tipo: slot.tipo,
+    hour: slot.hour,
+    meal_payload: null,
+    meal_override_payload: null,
+    ingredient_multipliers: {},
+    completed: false,
+  }))
+
+  const { error: insertError } = await supabaseAdmin.from('meal_plan_slots').insert(rowsToInsert)
+  if (insertError) {
+    throw new Error(insertError.message)
+  }
+
+  return getSlotsByWeekId(weekRowId)
+}
+
+async function updateMyBulkSlots(req, res) {
+  try {
+    const { week, slots: slotUpdates } = req.body || {}
+    req.log?.info(
+      {
+        ...userIdFromReq(req),
+        event: 'plan.bulk_slots_update',
+        week: week || getIsoWeekString(),
+        count: Array.isArray(slotUpdates) ? slotUpdates.length : 0,
+      },
+      'plan'
+    )
+
+    if (!Array.isArray(slotUpdates) || slotUpdates.length === 0) {
+      return failure(res, 'slots array is required', 400)
+    }
+
+    const selectedWeek = week || getIsoWeekString()
+    const weekRow = await ensureWeekRow(req.user.id, selectedWeek)
+    const slotRows = await ensureAllWeekSlots(weekRow.id)
+    const slotById = new Map(slotRows.map((row) => [row.slot_id, row]))
+
+    const updates = []
+    for (const item of slotUpdates) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+      const slotId = typeof item.slot === 'string' ? item.slot : ''
+      const meal = item.meal
+      if (!slotId || !meal || typeof meal !== 'object' || Array.isArray(meal)) continue
+
+      const slotRow = slotById.get(slotId)
+      if (!slotRow) {
+        return failure(res, `Slot not found: ${slotId}`, 404)
+      }
+
+      updates.push(
+        supabaseAdmin
+          .from('meal_plan_slots')
+          .update({
+            meal_payload: normalizeMealPayload(meal, slotRow.tipo),
+            meal_override_payload: null,
+            ingredient_multipliers: {},
+          })
+          .eq('id', slotRow.id)
+      )
+    }
+
+    if (updates.length === 0) {
+      return failure(res, 'No valid slot updates provided', 400)
+    }
+
+    const results = await Promise.all(updates)
+    const failed = results.find((result) => result.error)
+    if (failed?.error) {
+      return failure(res, failed.error.message, 400)
+    }
+
+    const refreshedSlots = await getSlotsByWeekId(weekRow.id)
+    return success(res, { plan: normalizeWeekPlan(weekRow, refreshedSlots), updated: updates.length })
+  } catch (error) {
+    req.log?.error({ err: error, ...userIdFromReq(req), event: 'plan.bulk_slots_error' }, 'plan')
+    return failure(res, 'Failed to update plan slots', 500)
+  }
+}
+
 async function updateMySlot(req, res) {
   try {
     const { slot, meal, week } = req.body || {}
@@ -702,29 +819,7 @@ async function updateMySlot(req, res) {
       return failure(res, 'Slot not found in current plan', 404)
     }
 
-    const normalizedMeal = {
-      ...meal,
-      id: String(meal.id || ''),
-      tipo: slotRow.tipo,
-      nombre: String(meal.nombre || ''),
-      receta: typeof meal.receta === 'string' ? meal.receta : '',
-      tip: typeof meal.tip === 'string' ? meal.tip : '',
-      tags: Array.isArray(meal.tags) ? meal.tags.filter((item) => typeof item === 'string') : [],
-      forbidden_ingredients: Array.isArray(meal.forbidden_ingredients)
-        ? meal.forbidden_ingredients.filter((item) => typeof item === 'string')
-        : Array.isArray(meal.forbiddenIngredients)
-          ? meal.forbiddenIngredients.filter((item) => typeof item === 'string')
-          : [],
-      ingredientes: Array.isArray(meal.ingredientes) ? meal.ingredientes : [],
-      groupPortions:
-        meal.groupPortions && typeof meal.groupPortions === 'object' && !Array.isArray(meal.groupPortions)
-          ? meal.groupPortions
-          : {},
-      realDishMetadata:
-        meal.realDishMetadata && typeof meal.realDishMetadata === 'object' && !Array.isArray(meal.realDishMetadata)
-          ? meal.realDishMetadata
-          : {},
-    }
+    const normalizedMeal = normalizeMealPayload(meal, slotRow.tipo)
 
     const { error: updateError } = await supabaseAdmin
       .from('meal_plan_slots')
@@ -1084,6 +1179,7 @@ module.exports = {
   generateMyPlan,
   getMySlotAlternatives,
   updateMySlot,
+  updateMyBulkSlots,
   replaceMySlotIngredient,
   completeMySlot,
   updateMyGrocery,

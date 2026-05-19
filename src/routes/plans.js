@@ -5,6 +5,7 @@ const {
   generateMyPlan,
   getMySlotAlternatives,
   updateMySlot,
+  updateMyBulkSlots,
   replaceMySlotIngredient,
   completeMySlot,
   updateMyGrocery,
@@ -19,6 +20,7 @@ router.get('/my', authMiddleware, getMyPlan)
 router.post('/my/generate', authMiddleware, generateMyPlan)
 router.post('/my/alternatives', authMiddleware, getMySlotAlternatives)
 router.put('/my/slot', authMiddleware, updateMySlot)
+router.put('/my/bulk-slots', authMiddleware, updateMyBulkSlots)
 router.put('/my/ingredient', authMiddleware, replaceMySlotIngredient)
 router.put('/my/complete', authMiddleware, completeMySlot)
 router.put('/my/grocery', authMiddleware, updateMyGrocery)
